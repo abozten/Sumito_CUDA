@@ -47,23 +47,23 @@ class AbaloneGame:
                     self.board[(q, r, s)] = None
         
         # Place the initial marbles according to the standard layout
-        # Black marbles in the top
-        black_positions = [
-            # row 1 => 5 black
+        # White marbles in the top
+        white_positions = [
+            # row 1 => 5 white
             (-4, 0, 4), (-3, 0, 3), (-2, 0, 2), (-1, 0, 1), (0, 0, 0),
-            # row 2 => 6 black
-            (-4, 1, 3), (-3, 1, 2), (-2, 1, 1), (-1, 1, 0), (0, 1, -1), (1, 1, -2),
-            # row 3 => 3 black
+            # row 2 => 6 white
+            (-4, 1, 3), (-3, 1, 2), (-2, 1, 1), (-4, 1, 0), (-4, 1, -1), (1, 1, -2),
+            # row 3 => 3 white
             (-2, 2, 0), (-1, 2, -1), (0, 2, -2)
         ]
         
-        # White marbles in the bottom
-        white_positions = [
-            # row 1 => 5 white
-            (0, -1, 1), (1, -1, 0), (2, -1, -1), (3, -1, -2), (4, -1, -3),
-            # row 2 => 6 white
+        # Black marbles in the bottom
+        black_positions = [
+            # row 1 => 5 black
+            (0, 0, 1), (1, 0, 0), (2, 0, -1), (3, 0, -2), (4, 0, -3),
+            # row 2 => 6 black
             (-1, -2, 3), (0, -2, 2), (1, -2, 1), (2, -2, 0), (3, -2, -1), (4, -2, -2),
-            # row 3 => 3 white
+            # row 3 => 3 black
             (-1, -3, 4), (0, -3, 3), (1, -3, 2)
         ]
         
@@ -395,6 +395,8 @@ class AbaloneGame:
 
 def main():
     game = AbaloneGame()
+    game.display()
+    input("Press Enter to start the game...")
     
     # Game loop
     while not game.game_over:
@@ -407,16 +409,43 @@ def main():
             print("No valid moves available. Game ends in a draw.")
             break
         
-        # For AI training, you would use your AI to select a move here
-        # For this example, we'll just select a random move
-        #import random
-        #move = random.choice(valid_moves)
+        # Display current player
+        print(f"\nCurrent player: {game.current_player.name}")
         
-       # line, direction = move
-        #print(f"Selected move: Line {line} in direction {direction}")
+        # Ask the user for input or use random move
+        move_choice = input("Select [r] for random move or [m] to choose a move manually: ").lower().strip()
+        
+        if move_choice == 'r':
+            # Use random move
+            import random
+            move = random.choice(valid_moves)
+            line, direction = move
+            print(f"Selected random move: Line {line} in direction {direction}")
+        else:
+            # Display available moves
+            print("\nAvailable moves:")
+            for i, (line, direction) in enumerate(valid_moves):
+                dir_names = ["NE", "E", "SE", "SW", "W", "NW"]
+                print(f"{i}: Move line {line} in direction {dir_names[direction]}")
+            
+            # Get user selection
+            while True:
+                try:
+                    move_index = int(input(f"Select move (0-{len(valid_moves)-1}): "))
+                    if 0 <= move_index < len(valid_moves):
+                        break
+                    else:
+                        print(f"Please enter a number between 0 and {len(valid_moves)-1}")
+                except ValueError:
+                    print("Please enter a valid number")
+            
+            # Make the selected move
+            move = valid_moves[move_index]
+            line, direction = move
+            print(f"Selected move: Line {line} in direction {direction}")
         
         # Make the move
-        #game.make_move(line, direction)
+        game.make_move(line, direction)
     
     # Game over
     game.display()
