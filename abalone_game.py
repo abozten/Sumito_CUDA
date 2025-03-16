@@ -80,9 +80,13 @@ class AbaloneGame:
         self.game_over = False
         self.winner = None
         
+        # Precompute valid positions for efficiency
+        self.valid_positions = set(self.board.keys())
+        self.board_radius = 4
+    
     def is_valid_position(self, position: Tuple[int, int, int]) -> bool:
         """Check if the position is on the board."""
-        return position in self.board
+        return position in self.valid_positions
     
     def get_neighbor(self, position: Tuple[int, int, int], direction: int) -> Tuple[int, int, int]:
         """Get the neighboring position in the given direction."""
@@ -261,7 +265,7 @@ class AbaloneGame:
                 return i
         
         # Not adjacent positions
-        return -1
+        raise ValueError("Positions are not adjacent")
     
     def make_move(self, line: List[Tuple[int, int, int]], direction: int) -> bool:
         """
@@ -272,44 +276,24 @@ class AbaloneGame:
             return False
         
         # Move the marbles
-        if len(line) == 1 or direction != self.get_direction(line[0], line[1]) and direction != (self.get_direction(line[0], line[1]) + 3) % 6:
-            # Broadside move or single marble move
-            new_positions = []
-            
-            # First, check all destination positions
-            for pos in line:
-                new_pos = self.get_neighbor(pos, direction)
-                new_positions.append(new_pos)
-            
-            # Then, move all marbles
-            for old_pos, new_pos in zip(line, new_positions):
-                self.board[new_pos] = self.board[old_pos]
-                self.board[old_pos] = None
+        new_positions = [self.get_neighbor(pos, direction) for pos in line]
+        
+        # In-line move
+        if len(line) == 1 or direction == self.get_direction(line[0], line[1]) or direction == (self.get_direction(line[0], line[1]) + 3) % 6:
+            # Move marbles one by one
+            for pos, new_pos in zip(line, new_positions):
+                # If moving off the board, count it as pushed off
+                if not self.is_valid_position(new_pos):
+                    opponent = self.current_player.opponent()
+                    self.pushed_off[opponent] += 1
+                else:
+                    self.board[new_pos] = self.board[pos]
+                self.board[pos] = None
         else:
-            # In-line move
-            if direction == self.get_direction(line[0], line[1]):  # Forward
-                # Move marbles one by one from front to back
-                marbles_to_move = list(reversed(line))
-                for pos in marbles_to_move:
-                    new_pos = self.get_neighbor(pos, direction)
-                    # If moving off the board, count it as pushed off
-                    if not self.is_valid_position(new_pos):
-                        opponent = self.current_player.opponent()
-                        self.pushed_off[opponent] += 1
-                    else:
-                        self.board[new_pos] = self.board[pos]
-                    self.board[pos] = None
-            else:  # Backward
-                # Move marbles one by one from back to front
-                for pos in line:
-                    new_pos = self.get_neighbor(pos, direction)
-                    # If moving off the board, count it as pushed off
-                    if not self.is_valid_position(new_pos):
-                        opponent = self.current_player.opponent()
-                        self.pushed_off[opponent] += 1
-                    else:
-                        self.board[new_pos] = self.board[pos]
-                    self.board[pos] = None
+            # Broadside move
+            for pos, new_pos in zip(line, new_positions):
+                self.board[new_pos] = self.board[pos]
+                self.board[pos] = None
         
         # Check for game over condition
         if self.pushed_off[Player.BLACK] >= 6:
