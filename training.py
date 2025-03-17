@@ -7,6 +7,7 @@ import time
 import numpy as np
 import multiprocessing as mp
 import copy
+import torch  # Import torch here
 
 from abalone_game import AbaloneGame, Player
 from abalone_ai import AbaloneAI
@@ -14,8 +15,15 @@ from abalone_ai import AbaloneAI
 def self_play_worker(worker_id, num_episodes, ai_params, experience_queue):
     """Worker function for parallel self-play, using a queue to send experiences."""
     print(f"Worker {worker_id} starting...")
-    black_ai = AbaloneAI(Player.BLACK, **ai_params)
-    white_ai = AbaloneAI(Player.WHITE, **ai_params)
+    # Set CUDA device for worker if available, else CPU - Important for multi-GPU setup if needed.
+    worker_device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # Or "cuda:worker_id % num_gpus" for multi-GPU
+    if worker_device.type == "cuda":
+        print(f"Worker {worker_id} using CUDA device: {worker_device}")
+    else:
+        print(f"Worker {worker_id} using CPU")
+
+    black_ai = AbaloneAI(Player.BLACK, device=worker_device, **ai_params) # Pass device to AI
+    white_ai = AbaloneAI(Player.WHITE, device=worker_device, **ai_params) # Pass device to AI
     game = AbaloneGame()
     worker_stats = {
         'episode_rewards': [],
@@ -125,14 +133,23 @@ def experience_collector(experience_queue, main_black_ai, num_episodes):
     """Process to collect experiences from the queue and add to main AI's memory."""
     collected_experiences = 0
     print("Experience collector starting...")
+    main_device = main_black_ai.model.device # Get main AI device - collector should be on same device if possible
     while collected_experiences < num_episodes * 200 * 4: # Max experiences roughly (episodes * max moves * workers). Adjust as needed.  *200*4 is a generous upper bound for moves * workers.
         try:
             experience = experience_queue.get(timeout=10) # Timeout to avoid infinite blocking if workers finish early
-            main_black_ai.memory.add(*experience) # Add experience to main AI's memory
+            # Move experience tensors to main device if they are not already there - crucial for CUDA
+            state, action_idx, reward, next_state, done = experience
+            state = state if isinstance(state, np.ndarray) else state.to(main_device) # No need to move numpy arrays
+            next_state = next_state if isinstance(next_state, np.ndarray) else next_state.to(main_device) # No need to move numpy arrays
+            main_black_ai.memory.add(state, action_idx, reward, next_state, done) # Add experience to main AI's memory
             collected_experiences += 1
         except mp.queues.Empty:
             print("Experience queue empty, collector exiting.")
             break
+        except Exception as e: # Catch any potential errors in collector
+            print(f"Collector process error: {e}")
+            break # Exit collector process on error
+
     print(f"Experience collector finished, collected {collected_experiences} experiences.")
 
 
@@ -141,9 +158,15 @@ def train_ai_parallel(num_episodes=1000, target_update_freq=10, save_interval=10
     start_time = time.time()
     time_limit_seconds = time_limit_minutes * 60
 
+    # Set multiprocessing start method to 'spawn' - IMPORTANT for CUDA
+    mp.set_start_method('spawn', force=True) # Use force=True to override if needed
+
     # Initialize main AI agents (will aggregate experiences and do the primary training)
-    main_black_ai = AbaloneAI(Player.BLACK, num_episodes=num_episodes)
-    main_white_ai = AbaloneAI(Player.WHITE, num_episodes=num_episodes)
+    main_device = torch.device("cuda" if torch.cuda.is_available() else "cpu") # Main process device
+    print(f"Main process using device: {main_device}")
+    main_black_ai = AbaloneAI(Player.BLACK, device=main_device, num_episodes=num_episodes) # Main AI on main device
+    main_white_ai = AbaloneAI(Player.WHITE, device=main_device, num_episodes=num_episodes) # Main AI on main device
+
 
     # AI parameters to be passed to workers (ensure they are serializable)
     ai_params = {
@@ -264,5 +287,8 @@ def train_ai_parallel(num_episodes=1000, target_update_freq=10, save_interval=10
 
 
 if __name__ == '__main__':
+    # Set multiprocessing start method to 'spawn' - IMPORTANT for CUDA
+    mp.set_start_method('spawn', force=True) # Add this at the very beginning of __main__
+
     num_processes = 4 # Set number of parallel processes
     black_ai, white_ai, stats = train_ai_parallel(num_episodes=2000, time_limit_minutes=120, num_workers=num_processes)
