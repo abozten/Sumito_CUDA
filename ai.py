@@ -306,7 +306,6 @@ def calculate_reward(self, game: AbaloneGame, previous_state=None):
     
     return total_reward
 
-
     def add_to_n_step_buffer(self, state, action_idx, reward, next_state, done):
         """Add experience to n-step buffer."""
         self.n_step_buffer.append((state, action_idx, reward, next_state, done))
