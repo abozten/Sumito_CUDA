@@ -11,23 +11,23 @@ from abalone_game import AbaloneGame, Player  # Import the Abalone game implemen
 from dqn_model import DQNModel  # Import the DQN model
 from replay_buffer import PrioritizedReplayBuffer  # Import the replay buffer
 
-# Set up device: CUDA if available, else MPS, else CPU
-device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-if device.type == "cuda":
-    print(f"Using CUDA device: {device}")
-elif device.type == "mps":
+# Set up device for M1 GPU (MPS) or fall back to CPU
+device = torch.device("cpu") # Default to CPU - device will be overridden in AbaloneAI init if passed
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
     print(f"Using MPS (M1 GPU) device: {device}")
 else:
-    print("Using CPU")
+    print("MPS (M1 GPU) not available, using CPU")
 
 
 class AbaloneAI:
     """AI agent for playing Abalone using enhanced Deep Q-Learning."""
 
-    def __init__(self, player: Player, epsilon_start=1.0, epsilon_end=0.05,
+    def __init__(self, player: Player, device=device, epsilon_start=1.0, epsilon_end=0.05, # Added device parameter with default value
                  epsilon_decay_steps=50000, gamma=0.99, learning_rate=0.0001,
                  batch_size=128, n_step=3, num_episodes=1000): # Added num_episodes for Cosine Annealing
         self.player = player
+        self.device = device # Store the device
         self.epsilon_start = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_decay_steps = epsilon_decay_steps
@@ -39,8 +39,8 @@ class AbaloneAI:
         self.num_episodes = num_episodes # For Cosine Annealing
 
         # Initialize the models and move them to the appropriate device
-        self.model = DQNModel().to(device)
-        self.target_model = copy.deepcopy(self.model).to(device)
+        self.model = DQNModel().to(self.device) # Use self.device
+        self.target_model = copy.deepcopy(self.model).to(self.device) # Use self.device
         self.optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
 
         # Huber loss for better handling of outliers compared to MSE
@@ -69,7 +69,7 @@ class AbaloneAI:
 
         # Convert state to tensor and move to device
         state = game.get_state_representation()
-        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)  # Add batch dimension
+        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(self.device)  # Add batch dimension and move to device
         num_actions = len(valid_moves)  # Dynamically determine the number of actions
 
         # Epsilon-greedy action selection
@@ -218,12 +218,12 @@ class AbaloneAI:
         states, action_indices, rewards, next_states, dones, indices, weights = batch
 
         # Convert to tensors and move to device
-        states = torch.FloatTensor(states).to(device)
-        action_indices = torch.LongTensor(action_indices).to(device)
-        rewards = torch.FloatTensor(rewards).to(device)
-        next_states = torch.FloatTensor(next_states).to(device)
-        dones = torch.FloatTensor(dones).to(device)
-        weights = torch.FloatTensor(weights).to(device)
+        states = torch.FloatTensor(states).to(self.device)
+        action_indices = torch.LongTensor(action_indices).to(self.device)
+        rewards = torch.FloatTensor(rewards).to(self.device)
+        next_states = torch.FloatTensor(next_states).to(self.device)
+        dones = torch.FloatTensor(dones).to(self.device)
+        weights = torch.FloatTensor(weights).to(self.device)
 
         # Get the number of actions based on states
         game = AbaloneGame()  #create new game to get valid moves
@@ -288,7 +288,7 @@ class AbaloneAI:
 
     def load_model(self, path):
         """Load the model from disk with training stats."""
-        checkpoint = torch.load(path, map_location=device)
+        checkpoint = torch.load(path, map_location=self.device) # Load to self.device
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.target_model.load_state_dict(checkpoint['target_model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
