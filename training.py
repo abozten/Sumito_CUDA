@@ -133,7 +133,8 @@ def experience_collector(experience_queue, main_black_ai, num_episodes):
     """Process to collect experiences from the queue and add to main AI's memory."""
     collected_experiences = 0
     print("Experience collector starting...")
-    main_device = main_black_ai.model.device # Get main AI device - collector should be on same device if possible
+    # Get main AI device from model's parameters instead of model itself
+    main_device = next(main_black_ai.model.parameters()).device # Get device from model's parameters
     while collected_experiences < num_episodes * 200 * 4: # Max experiences roughly (episodes * max moves * workers). Adjust as needed.  *200*4 is a generous upper bound for moves * workers.
         try:
             experience = experience_queue.get(timeout=10) # Timeout to avoid infinite blocking if workers finish early
