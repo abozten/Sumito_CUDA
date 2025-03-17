@@ -2,7 +2,7 @@
 
 from abalone_game import AbaloneGame, Player
 from abalone_ai import AbaloneAI
-from training import train_ai
+from training import train_ai_parallel as train_ai
 from evaluation import evaluate_ai
 
 def main():

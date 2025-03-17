@@ -11,13 +11,14 @@ from abalone_game import AbaloneGame, Player  # Import the Abalone game implemen
 from dqn_model import DQNModel  # Import the DQN model
 from replay_buffer import PrioritizedReplayBuffer  # Import the replay buffer
 
-# Set up device for M1 GPU (MPS) or fall back to CPU
-device = torch.device("cpu")
-if torch.backends.mps.is_available():
-    device = torch.device("mps")
+# Set up device: CUDA if available, else MPS, else CPU
+device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+if device.type == "cuda":
+    print(f"Using CUDA device: {device}")
+elif device.type == "mps":
     print(f"Using MPS (M1 GPU) device: {device}")
 else:
-    print("MPS (M1 GPU) not available, using CPU")
+    print("Using CPU")
 
 
 class AbaloneAI:
@@ -25,7 +26,7 @@ class AbaloneAI:
 
     def __init__(self, player: Player, epsilon_start=1.0, epsilon_end=0.05,
                  epsilon_decay_steps=50000, gamma=0.99, learning_rate=0.0001,
-                 batch_size=128, n_step=3):
+                 batch_size=128, n_step=3, num_episodes=1000): # Added num_episodes for Cosine Annealing
         self.player = player
         self.epsilon_start = epsilon_start
         self.epsilon_end = epsilon_end
@@ -35,6 +36,7 @@ class AbaloneAI:
         self.gamma = gamma  # Discount factor
         self.batch_size = batch_size
         self.n_step = n_step  # For n-step returns
+        self.num_episodes = num_episodes # For Cosine Annealing
 
         # Initialize the models and move them to the appropriate device
         self.model = DQNModel().to(device)
@@ -44,8 +46,8 @@ class AbaloneAI:
         # Huber loss for better handling of outliers compared to MSE
         self.loss_fn = nn.SmoothL1Loss(reduction='none')  # For prioritized replay
 
-        # Learning rate scheduler
-        self.scheduler = optim.lr_scheduler.StepLR(self.optimizer, step_size=5000, gamma=0.5)
+        # Cosine Annealing Learning Rate Scheduler
+        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=num_episodes, eta_min=0) # Use num_episodes as T_max
 
         # Prioritized replay buffer
         self.memory = PrioritizedReplayBuffer()
@@ -84,19 +86,34 @@ class AbaloneAI:
         # Get the actual move
         action = valid_moves[action_idx]
 
-        # Decay epsilon using linear annealing
+        # Decay epsilon using exponential decay
         if training:
             self.steps += 1
-            self.epsilon = max(
-                self.epsilon_end,
-                self.epsilon_start - (self.epsilon_start - self.epsilon_end) * (
-                        self.steps / self.epsilon_decay_steps)
-            )
+            decay_rate = (self.epsilon_end / self.epsilon_start) ** (1 / self.epsilon_decay_steps)
+            self.epsilon = max(self.epsilon_end, self.epsilon_start * (decay_rate ** self.steps))
 
         return action, action_idx
 
-    def calculate_reward(self, game: AbaloneGame, previous_state=None):
-        """Enhanced reward function with stronger incentives to win."""
+    def potential(self, game: AbaloneGame):
+        """Potential function for reward shaping."""
+        player_count = sum(1 for p in game.board.values() if p == self.player)
+        opponent_count = sum(1 for p in game.board.values() if p == self.player.opponent())
+        material_advantage = player_count - opponent_count
+
+        center_positions = [
+            (-1, 1, 0), (0, 1, -1), (1, 1, -2),
+            (-1, 0, 1), (0, 0, 0), (1, 0, -1),
+            (-1, -1, 2), (0, -1, 1), (1, -1, 0)
+        ]
+        center_control = sum(1 for pos in center_positions if game.is_valid_position(pos) and game.board.get(pos) == self.player)
+
+        return material_advantage + 0.5 * center_control # Weighted sum of material and center control
+
+    def calculate_reward(self, game: AbaloneGame, previous_game_state=None): # Added previous_game_state
+        """Enhanced reward function with potential-based reward shaping."""
+        current_potential = self.potential(game)
+        previous_potential = self.potential(previous_game_state) if previous_game_state else current_potential # Use current potential if no previous state
+
         # Game outcome rewards with higher magnitudes
         if game.game_over:
             if game.winner == self.player:
@@ -152,6 +169,9 @@ class AbaloneAI:
                     friendly_neighbors += 1
             cohesion_reward += 0.05 * friendly_neighbors
 
+        # Potential-based reward shaping component
+        reward_shaping = self.gamma * current_potential - previous_potential
+
         # Total reward
         total_reward = (
             material_advantage +
@@ -160,7 +180,8 @@ class AbaloneAI:
             center_control +
             progress_to_win +
             edge_pressure +
-            cohesion_reward
+            cohesion_reward +
+            reward_shaping # Add reward shaping
         )
 
         return total_reward

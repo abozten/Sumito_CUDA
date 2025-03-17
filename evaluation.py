@@ -39,6 +39,7 @@ def evaluate_ai(black_ai, white_ai, num_games=100):
             game_center_control['white'] += white_center
 
             current_player_ai = black_ai if game.current_player == Player.BLACK else white_ai
+            move_start_time = time.time()
 
             # Select action without exploration
             action, _ = current_player_ai.select_action(game, training=False)
@@ -52,9 +53,13 @@ def evaluate_ai(black_ai, white_ai, num_games=100):
             # Make the move
             line, direction = action
             game.make_move(line, direction)
-
+            move_end_time = time.time()
+            move_duration = move_end_time - move_start_time
+            # Print move duration for debugging
+            if game.turn_count % 1000 == 0:
+                print(f"Move duration: {move_duration:.4f} seconds")
             # Limit game length to prevent infinite games
-            if game.turn_count > 200:
+            if game.turn_count > 20000:
                 game.game_over = True
                 game.winner = None
                 break
