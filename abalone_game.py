@@ -309,6 +309,27 @@ class AbaloneGame:
         
         return True
     
+    def set_state_from_representation(self, state_tensor: np.ndarray, current_player: Player):
+        """Set the game state from a state representation tensor."""
+        # Reset the game
+        self.reset()
+        
+        # Reconstruct the board state
+        for q in range(-4, 5):
+            for r in range(-4, 5):
+                s = -q - r
+                if abs(s) > 4:
+                    continue
+                pos = (q, r, s)
+                # Assuming state_tensor has shape [channels, q, r]
+                # Extract player positions from channels
+                if state_tensor[0, q+4, r+4] == 1:
+                    self.board[pos] = Player.BLACK
+                elif state_tensor[1, q+4, r+4] == 1:
+                    self.board[pos] = Player.WHITE
+        # Set current player
+        self.current_player = current_player
+
     def get_state_representation(self) -> np.ndarray:
         """
         Get a matrix representation of the board state for AI training.
